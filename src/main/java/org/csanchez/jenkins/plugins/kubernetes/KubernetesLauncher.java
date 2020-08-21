@@ -117,6 +117,7 @@ public class KubernetesLauncher extends JNLPLauncher {
             slave.assignPod(pod);
 
             String podName = pod.getMetadata().getName();
+            TaskListener runListener = template.getListener();
 
             String namespace = Arrays.asList( //
                     pod.getMetadata().getNamespace(),
@@ -125,11 +126,18 @@ public class KubernetesLauncher extends JNLPLauncher {
             slave.setNamespace(namespace);
 
             LOGGER.log(Level.FINE, "Creating Pod: {0}/{1}", new Object[] { namespace, podName });
-            pod = client.pods().inNamespace(namespace).create(pod);
+            try {
+                pod = client.pods().inNamespace(namespace).create(pod);
+            } catch (KubernetesClientException e) {
+                if (e.getMessage().contains("pod rejected due to unauthorized usage of spec.volumes[_].hostPath")) {
+                    runListener.getLogger().printf("ERROR: Unable to create pod. " + e.getMessage());
+                    PodUtils.cancelInvalidPodTemplateJob(pod, "OPA Violation");
+                }
+                throw e;
+            }
             LOGGER.log(INFO, "Created Pod: {0}/{1}", new Object[] { namespace, podName });
             listener.getLogger().printf("Created Pod: %s/%s%n", namespace, podName);
 
-            TaskListener runListener = template.getListener();
             runListener.getLogger().printf("Created Pod: %s/%s%n", namespace, podName);
 
             template.getWorkspaceVolume().createVolume(client, pod.getMetadata());
